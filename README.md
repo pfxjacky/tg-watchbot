@@ -72,7 +72,7 @@ tg-watchbot 是一个轻量级 Python 服务，把 **Telegram 双向客服机器
 - [`python-dotenv`](https://github.com/theskumar/python-dotenv)：读取 `.env`。
 - Python 标准库 `sqlite3`：消息、用户、去重、监控状态持久化。
 
-## 安全 / 脱敏说明
+## 安全说明
 
 - 如果要把面板暴露到公网，建议使用 Cloudflare Access / 反代鉴权，并使用强密码。
 - Bot 只能给“已经主动私聊过 Bot 的用户”发消息，这是 Telegram Bot API 的限制。
