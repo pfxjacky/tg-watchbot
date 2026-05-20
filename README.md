@@ -8,8 +8,6 @@ tg-watchbot 是一个轻量级 Python 服务，把 **Telegram 双向客服机器
 - 自带一个 Web 管理面板，可配置监控目标、编辑 YAML、查看收件箱和日志。
 
 项目为单文件应用，适合个人服务器、NAT 小鸡、轻量 VPS 直接用 systemd 跑。
-<img width="2467" height="1388" alt="470b39663485d8711c0f3d8d4e24244e" src="https://github.com/user-attachments/assets/2635584d-d2cd-4b45-8227-6d4381816bef" />
-<img width="1227" height="222" alt="8521cab29a9635743a603582ceb7ba02" src="https://github.com/user-attachments/assets/1cac8e2b-db9f-47f7-9eed-8a824de7d3d8" />
 
 ## 更新日志
 
