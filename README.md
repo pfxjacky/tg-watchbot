@@ -142,6 +142,8 @@ touch tg-watchbot.sqlite3 tg-watchbot.log
 docker compose up -d --build
 ```
 
+Docker 会在容器内监听 `0.0.0.0:8765`，宿主机仍然打开 `http://127.0.0.1:8765`。
+
 查看状态与日志：
 
 ```bash

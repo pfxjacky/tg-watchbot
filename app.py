@@ -463,7 +463,8 @@ async def admin_send_monitor(text: str, monitor_name: str) -> bool:
             sent = await bot.send_message(chat_id, text, disable_web_page_preview=False)
             settings = monitor_cleanup_settings()
             record_monitor_message(
-                sent,
+                chat_id,
+                sent.message_id,
                 monitor_name,
                 int(settings["message_delete_after_minutes"]) * 60,
             )
@@ -974,7 +975,8 @@ def event_not_sent(event_key: str, monitor_name: str, title: str, link: str) -> 
 
 
 def record_monitor_message(
-    sent_message: Message,
+    chat_id: int,
+    message_id: int,
     monitor_name: str,
     delete_after_seconds: int,
     sent_at_ts: float | None = None,
@@ -989,8 +991,8 @@ def record_monitor_message(
             ) VALUES(?,?,?,?,?,NULL)
             """,
             (
-                sent_message.chat.id,
-                sent_message.message_id,
+                chat_id,
+                message_id,
                 monitor_name,
                 sent_at,
                 max(1, int(delete_after_seconds)),

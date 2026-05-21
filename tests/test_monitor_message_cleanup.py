@@ -89,7 +89,7 @@ class FakeBot:
             raise RuntimeError("send failed")
         self.sent_chat_ids.append(chat_id)
         self.sent_texts.append(text)
-        return SimpleNamespace(chat=SimpleNamespace(id=chat_id), message_id=3003)
+        return SimpleNamespace(message_id=3003)
 
 
 class MonitorMessageCleanupTest(unittest.TestCase):
@@ -185,8 +185,7 @@ class MonitorMessageCleanupTest(unittest.TestCase):
         self.assertEqual((1001, 3003, 2001, 4004), row)
 
     def test_expired_monitor_message_is_deleted_and_removed_from_queue(self) -> None:
-        sent_message = SimpleNamespace(chat=SimpleNamespace(id=1001), message_id=2002)
-        app.record_monitor_message(sent_message, "NodeSeek 新帖", delete_after_seconds=60, sent_at_ts=1000)
+        app.record_monitor_message(1001, 2002, "NodeSeek 新帖", delete_after_seconds=60, sent_at_ts=1000)
 
         fake_bot = FakeBot()
         deleted_count = asyncio.run(app.delete_expired_monitor_messages(fake_bot, now_ts=1061))
@@ -198,8 +197,7 @@ class MonitorMessageCleanupTest(unittest.TestCase):
         self.assertEqual(0, remaining)
 
     def test_unexpired_monitor_message_is_kept(self) -> None:
-        sent_message = SimpleNamespace(chat=SimpleNamespace(id=1001), message_id=2002)
-        app.record_monitor_message(sent_message, "NodeSeek 新帖", delete_after_seconds=60, sent_at_ts=1000)
+        app.record_monitor_message(1001, 2002, "NodeSeek 新帖", delete_after_seconds=60, sent_at_ts=1000)
 
         fake_bot = FakeBot()
         deleted_count = asyncio.run(app.delete_expired_monitor_messages(fake_bot, now_ts=1059))

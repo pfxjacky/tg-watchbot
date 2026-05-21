@@ -7,6 +7,8 @@ services:
       - "8765:8765"
     env_file:
       - .env
+    environment:
+      WEB_PANEL_HOST: 0.0.0.0
     volumes:
       - ./config.yaml:/app/config.yaml
       - ./tg-watchbot.sqlite3:/app/tg-watchbot.sqlite3
