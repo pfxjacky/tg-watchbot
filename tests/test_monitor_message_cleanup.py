@@ -43,6 +43,8 @@ def install_import_stubs() -> None:
     modules["apscheduler.schedulers.asyncio"].AsyncIOScheduler = object
     modules["bs4"].BeautifulSoup = object
     modules["dotenv"].load_dotenv = lambda *args, **kwargs: None
+    modules["yaml"].safe_load = lambda stream: {"bot": {"spam_filter": {"enabled": True, "keywords": []}}}
+    modules["yaml"].safe_dump = lambda data, **kwargs: str(data)
     modules["aiogram"].Bot = object
     modules["aiogram"].Dispatcher = object
     modules["aiogram"].F = object()
@@ -76,11 +78,16 @@ class FakeBot:
     def __init__(self) -> None:
         self.deleted: list[tuple[int, int]] = []
         self.sent_texts: list[str] = []
+        self.sent_chat_ids: list[int] = []
+        self.fail_chat_ids: set[int] = set()
 
     async def delete_message(self, chat_id: int, message_id: int) -> None:
         self.deleted.append((chat_id, message_id))
 
     async def send_message(self, chat_id: int, text: str, disable_web_page_preview: bool = False):
+        if chat_id in self.fail_chat_ids:
+            raise RuntimeError("send failed")
+        self.sent_chat_ids.append(chat_id)
         self.sent_texts.append(text)
         return SimpleNamespace(chat=SimpleNamespace(id=chat_id), message_id=3003)
 
@@ -99,10 +106,12 @@ class MonitorMessageCleanupTest(unittest.TestCase):
     def test_monitor_notification_send_is_recorded_for_later_deletion(self) -> None:
         old_bot = app.bot
         old_admin_chat_id = app.admin_chat_id
+        old_admin_chat_ids = app.admin_chat_ids
         old_config = app.config
         fake_bot = FakeBot()
         app.bot = fake_bot
         app.admin_chat_id = 1001
+        app.admin_chat_ids = []
         app.config = {"cleanup": {"monitor_message_delete_after_minutes": 1}}
         try:
             sent = asyncio.run(app.admin_send_monitor("monitor hit", "NodeSeek 新帖"))
@@ -116,7 +125,56 @@ class MonitorMessageCleanupTest(unittest.TestCase):
         finally:
             app.bot = old_bot
             app.admin_chat_id = old_admin_chat_id
+            app.admin_chat_ids = old_admin_chat_ids
             app.config = old_config
+
+    def test_monitor_event_history_is_recorded(self) -> None:
+        app.record_monitor_event("NodeSeek 新帖", "title", "https://example.com", ["关键词"], False)
+        with closing(sqlite3.connect(app.DB_PATH)) as conn:
+            row = conn.execute("SELECT monitor_name, title, pushed FROM monitor_events").fetchone()
+        self.assertEqual(("NodeSeek 新帖", "title", 0), row)
+
+    def test_monitor_notification_is_sent_to_all_admins(self) -> None:
+        old_bot = app.bot
+        old_admin_chat_ids = app.admin_chat_ids
+        old_config = app.config
+        fake_bot = FakeBot()
+        app.bot = fake_bot
+        app.admin_chat_ids = [1001, 1002, 1003]
+        app.config = {"cleanup": {"monitor_message_delete_after_minutes": 1}}
+        try:
+            self.assertTrue(asyncio.run(app.admin_send_monitor("monitor hit", "NodeSeek 新帖")))
+            self.assertEqual([1001, 1002, 1003], fake_bot.sent_chat_ids)
+        finally:
+            app.bot = old_bot
+            app.admin_chat_ids = old_admin_chat_ids
+            app.config = old_config
+
+    def test_monitor_notification_continues_when_one_admin_fails(self) -> None:
+        old_bot = app.bot
+        old_admin_chat_ids = app.admin_chat_ids
+        old_config = app.config
+        fake_bot = FakeBot()
+        fake_bot.fail_chat_ids.add(1002)
+        app.bot = fake_bot
+        app.admin_chat_ids = [1001, 1002, 1003]
+        app.config = {"cleanup": {"monitor_message_delete_after_minutes": 1}}
+        try:
+            with self.assertLogs("tg-watchbot", level="ERROR"):
+                self.assertTrue(asyncio.run(app.admin_send_monitor("monitor hit", "NodeSeek 新帖")))
+            self.assertEqual([1001, 1003], fake_bot.sent_chat_ids)
+        finally:
+            app.bot = old_bot
+            app.admin_chat_ids = old_admin_chat_ids
+            app.config = old_config
+
+    def test_outbound_message_is_recorded_in_conversation_log(self) -> None:
+        app.upsert_user(2001, "User", "user")
+        outbox_id = app.create_outbox_message(2001, "reply text", "web:inbox", 4004)
+        with closing(sqlite3.connect(app.DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT direction, source, text, forwarded FROM inbox_messages WHERE id=?", (outbox_id,)).fetchone()
+        self.assertEqual(("out", "web:inbox", "reply text", 1), (row["direction"], row["source"], row["text"], row["forwarded"]))
 
     def test_expired_monitor_message_is_deleted_and_removed_from_queue(self) -> None:
         sent_message = SimpleNamespace(chat=SimpleNamespace(id=1001), message_id=2002)
@@ -146,6 +204,9 @@ class MonitorMessageCleanupTest(unittest.TestCase):
 
 
 class BotConfigurationTest(unittest.TestCase):
+    def test_parse_admin_chat_ids_keeps_unique_first_three(self) -> None:
+        self.assertEqual([1, 2, 3], app.parse_admin_chat_ids("1,2 2;3,4"))
+
     def test_bot_is_not_configured_without_token_or_admin_chat_id(self) -> None:
         old_token = os.environ.pop("TELEGRAM_BOT_TOKEN", None)
         old_admin = os.environ.pop("ADMIN_CHAT_ID", None)
@@ -217,8 +278,67 @@ class PanelHtmlContractTest(unittest.TestCase):
             "name=new_item",
             "name=price_change",
             "name=stock_change",
+            "name=notify_telegram",
         ]:
             self.assertIn(expected, html)
+
+    def test_monitor_form_can_disable_telegram_notification(self) -> None:
+        monitor = {
+            "type": "rss",
+            "interval_seconds": 60,
+            "notify_telegram": False,
+            "notify_on": {"keyword_match": True},
+        }
+        html = app.monitor_form_html(monitor)
+        self.assertIn("name=notify_telegram", html)
+        self.assertNotIn("name=notify_telegram checked", html)
+
+    def test_layout_groups_navigation_by_domain(self) -> None:
+        html = app.layout("测试", "<p>ok</p>")
+        for expected in ["<b>消息</b>", "<b>监控</b>", "<b>配置</b>", "<b>系统</b>", "私聊广告拦截"]:
+            self.assertIn(expected, html)
+
+    def test_inbox_copy_describes_two_way_conversation(self) -> None:
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertIn("这里显示双向机器人对话记录", source)
+        self.assertIn("管理员 -> 用户", source)
+
+    def test_users_page_keeps_shared_settings_form(self) -> None:
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertIn("action='/users/settings'", source)
+        self.assertIn("这里和“Bot / 面板设置”共用同一份 .env", source)
+
+
+class SpamAndTemplateConfigTest(unittest.TestCase):
+    def test_spam_keyword_hits_follow_config(self) -> None:
+        old_config = app.config
+        app.config = {"bot": {"spam_filter": {"enabled": True, "keywords": ["博彩", "投资"]}}}
+        try:
+            self.assertEqual(["博彩"], app.spam_keyword_hits("这里有博彩广告"))
+        finally:
+            app.config = old_config
+
+    def test_quick_replies_are_loaded_from_config(self) -> None:
+        old_config = app.config
+        app.config = {"bot": {"quick_replies": [{"title": "收到", "text": "稍后处理"}]}}
+        try:
+            self.assertEqual("收到", app.list_quick_replies()[0]["title"])
+        finally:
+            app.config = old_config
+
+    def test_update_spam_keywords_writes_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            old_config_path = app.CONFIG_PATH
+            old_config = app.config
+            app.CONFIG_PATH = Path(temp_dir) / "config.yaml"
+            app.CONFIG_PATH.write_text("bot:\n  spam_filter:\n    enabled: true\n    keywords: []\n", encoding="utf-8")
+            app.config = {"bot": {"spam_filter": {"enabled": True, "keywords": []}}}
+            try:
+                self.assertEqual(["广告"], app.update_spam_keywords("add", "广告"))
+                self.assertEqual([], app.update_spam_keywords("delete", "广告"))
+            finally:
+                app.CONFIG_PATH = old_config_path
+                app.config = old_config
 
 
 if __name__ == "__main__":

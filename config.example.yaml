@@ -6,6 +6,16 @@ bot:
   rate_limit:
     window_seconds: 10
     max_messages: 3
+  spam_filter:
+    enabled: false
+    auto_block: true
+    keywords:
+    - 投资
+    - 博彩
+    - 空投
+  quick_replies:
+  - title: 已收到
+    text: 你好，消息已收到，我稍后处理。
 monitors:
 - name: NodeSeek 新帖
   type: rss
@@ -23,6 +33,7 @@ monitors:
     new_item: true
     price_change: false
     stock_change: false
+  notify_telegram: true
   forum: true
 - name: Linux.do 最新
   type: rss
@@ -40,6 +51,7 @@ monitors:
     new_item: true
     price_change: false
     stock_change: false
+  notify_telegram: true
   forum: true
 cleanup:
   enabled: true

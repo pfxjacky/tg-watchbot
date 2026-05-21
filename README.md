@@ -11,7 +11,15 @@ tg-watchbot 是一个轻量级 Python 服务，把 **Telegram 双向客服机器
 
 ## 更新日志
 
-### 2026-05-21
+### 2026-05-21 第二次更新
+
+- Web 面板新增收件箱直接回复、用户管理、快捷回复、私聊广告拦截、监控推送历史、配置导入/导出。
+- 收件箱改为完整双向对话记录：用户消息、Web 回复、TG 管理员回复都会显示。
+- 用户管理页新增 Bot / 面板配置卡片，和设置页共用同一份配置；修改 Token、管理员 ID、端口、账号或密码后需要重启。
+- `ADMIN_CHAT_ID` 支持最多 3 个管理员，用逗号分隔。
+- 单个监控可关闭 Telegram 推送，只记录到 Web 推送历史。
+
+### 2026-05-21 第一次更新
 
 - 默认启动改为先启动 Web 面板：未填写 `TELEGRAM_BOT_TOKEN` / `ADMIN_CHAT_ID` 时，面板仍可打开，同时 Telegram 收发、监控推送不可用。
 - 面板配置页可填写 Bot Token、管理员 ID、面板账号和清理策略；保存后需要重启服务让 Bot 配置生效。
@@ -34,8 +42,13 @@ tg-watchbot 是一个轻量级 Python 服务，把 **Telegram 双向客服机器
   - `/unblock <user_id>`：解封用户；
   - `/note <user_id> <备注>`：给用户加备注；
   - `/who <user_id>`：查看用户信息；
+  - `/spamwords`：查看广告关键词；
+  - `/spamadd <关键词>`：添加广告关键词；
+  - `/spamdel <关键词>`：删除广告关键词；
   - `/cancel`：取消待发送图片。
 - 普通用户有简单限流，防止刷屏。
+- 支持最多 3 个管理员 chat id，用逗号分隔配置。
+- 支持私聊广告关键词自动拦截和自动拉黑，不影响 RSS/Web 监控。
 
 ![示例图片](https://pic.gongyichuren.de/file/1779287173835_8521cab29a9635743a603582ceb7ba02.png)
 
@@ -52,6 +65,7 @@ tg-watchbot 是一个轻量级 Python 服务，把 **Telegram 双向客服机器
 - 支持论坛 RSS 增强字段：作者、分类、tags、摘要。
 - 支持去重，避免同一条反复推送。
 - 支持屏蔽词、作者、分类过滤（YAML 高级配置）。
+- 单个监控可关闭 Telegram 推送，只记录到 Web 推送历史。
 - 默认最低监控间隔为 60 秒。
 
 ![示例图片](https://pic.gongyichuren.de/file/1779287170665_17b7c8b4040d6334ea62a108d08db644.png)
@@ -64,7 +78,11 @@ tg-watchbot 是一个轻量级 Python 服务，把 **Telegram 双向客服机器
 - 批量新增监控。
 - YAML 高级编辑。
 - Bot Token / 管理员 ID / 面板账号配置页。
-- 收件箱页面，可查看用户消息和重试转发。
+- 收件箱页面，可查看完整双向对话记录、重试转发、直接回复。
+- 用户管理页，可备注、封禁、解封、主动发消息，并可编辑 Bot / 面板配置。
+- 私聊广告拦截规则和快捷回复模板可在 Web 面板编辑。
+- 监控推送历史页，可查看 Telegram 推送和仅 Web 记录。
+- `config.yaml` 导入/导出页面，方便迁移。
 - 主动发消息页面 `/send`，发送成功后会在页面显示结果，并给管理员聊天发送确认提醒。
 - 自动清理监控/RSS/网站状态数据；支持定时删除 Telegram 监控通知消息；不会删除用户、收件箱、双向对话消息。
 - 日志页面和健康检查 `/health`。
@@ -213,7 +231,7 @@ curl http://127.0.0.1:8765/health
 | 变量 | 说明 |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | BotFather 创建的 Telegram Bot Token |
-| `ADMIN_CHAT_ID` | 管理员 Telegram 数字 chat id，用于接收用户消息和监控通知 |
+| `ADMIN_CHAT_ID` | 管理员 Telegram 数字 chat id；最多 3 个，用逗号分隔 |
 | `LOG_LEVEL` | 日志级别，默认 `INFO` |
 | `WEB_PANEL_ENABLED` | 是否启用 Web 面板，默认 `true` |
 | `WEB_PANEL_HOST` | 面板监听地址，默认 `127.0.0.1` |
@@ -223,6 +241,25 @@ curl http://127.0.0.1:8765/health
 | `WEB_PANEL_SESSION_SECRET` | Session Secret，留空会自动生成并写回 `.env` |
 
 ### `config.yaml`
+
+Bot 扩展配置示例：
+
+```yaml
+bot:
+  rate_limit:
+    window_seconds: 10
+    max_messages: 3
+  spam_filter:
+    enabled: true
+    auto_block: true
+    keywords:
+      - 投资
+      - 博彩
+      - 空投
+  quick_replies:
+    - title: 已收到
+      text: 你好，消息已收到，我稍后处理。
+```
 
 监控数据自动清理示例：
 
@@ -267,6 +304,7 @@ monitors:
       new_item: true
       price_change: false
       stock_change: false
+    notify_telegram: true
     forum: true
 ```
 
@@ -291,6 +329,7 @@ monitors:
       new_item: true
       price_change: true
       stock_change: true
+    notify_telegram: true
 ```
 
 ## 管理命令
@@ -304,6 +343,9 @@ monitors:
 /unblock <user_id>
 /note <user_id> <备注>
 /who <user_id>
+/spamwords
+/spamadd <关键词>
+/spamdel <关键词>
 /cancel
 ```
 
@@ -324,6 +366,11 @@ monitors:
 | `/settings` | `.env` 设置和监控清理策略 |
 | `/send` | 主动发消息给已私聊过 Bot 的用户 |
 | `/inbox` | 收件箱 |
+| `/users` | 用户管理 |
+| `/rules` | 私聊广告拦截规则 |
+| `/replies` | 快捷回复模板 |
+| `/monitor/events` | 监控推送历史 |
+| `/config/export` | 导出 / 导入 `config.yaml` |
 | `/logs` | 日志 |
 | `/health` | 健康检查 |
 
